@@ -339,6 +339,19 @@ def new_session():
     return {"session_id": S.session_id}
 
 
+@app.post("/api/clear_memory")
+def clear_memory():
+    if not S.log:
+        return JSONResponse({"error": "Not initialized"}, 500)
+    conn = S.log._conn
+    conn.execute("DELETE FROM chunks")
+    conn.execute("DELETE FROM episodes")
+    conn.execute("DELETE FROM user_links")
+    conn.commit()
+    S.new_session()
+    return {"cleared": True, "session_id": S.session_id}
+
+
 @app.get("/api/memories")
 def get_memories():
     if not S.log:

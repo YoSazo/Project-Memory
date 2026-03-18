@@ -265,6 +265,7 @@ main{display:flex;flex:1;overflow:hidden}
     <span class="hdr-stat" id="stat-turns">0 turns</span>
     <button class="hdr-btn" id="btn-graph" title="Toggle memory map">Map</button>
     <button class="hdr-btn" id="btn-new">New Session</button>
+    <button class="hdr-btn" id="btn-clear-mem" title="Delete all memories and start fresh" style="color:#f87171">Clear Memory</button>
   </div>
 </header>
 
@@ -839,6 +840,20 @@ function setupListeners() {
       '<div class="empty-chat" id="empty-chat"><h2>Memla</h2><p>New session started.</p></div>';
     clearSelection();
     fetchState();
+  };
+
+  document.getElementById('btn-clear-mem').onclick = async () => {
+    if (!confirm('Delete ALL memories, links, and episodes? This cannot be undone.')) return;
+    await fetch('/api/clear_memory', {method:'POST'});
+    document.getElementById('messages').innerHTML =
+      '<div class="empty-chat" id="empty-chat"><h2>Memla</h2><p>Memory cleared.</p></div>';
+    clearSelection();
+    currentNodes = []; currentLinks = [];
+    if (sim) sim.stop();
+    d3.select('#graph-svg').selectAll('g').remove();
+    document.getElementById('graph-empty').style.display = '';
+    fetchState();
+    showToast('All memories cleared');
   };
 
   const gp = document.getElementById('graph-panel');
