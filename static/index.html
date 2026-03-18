@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Project Memory</title>
+<title>Memla</title>
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -255,7 +255,7 @@ main{display:flex;flex:1;overflow:hidden}
 <header>
   <div class="logo">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/><line x1="9" y1="22" x2="15" y2="22"/><line x1="10" y1="2" x2="10" y2="7"/><line x1="14" y1="2" x2="14" y2="7"/></svg>
-    <span>Project Memory</span>
+    <span>Memla</span>
   </div>
   <div class="model-wrap">
     <select id="model-picker"><option>loading…</option></select>
@@ -313,7 +313,7 @@ main{display:flex;flex:1;overflow:hidden}
 
     <div id="messages">
       <div class="empty-chat" id="empty-chat">
-        <h2>Project Memory</h2>
+        <h2>Memla</h2>
         <p>Select memories on the map, then ask a question.</p>
       </div>
     </div>
@@ -836,7 +836,7 @@ function setupListeners() {
   document.getElementById('btn-new').onclick = async () => {
     await fetch('/api/session', {method:'POST'});
     document.getElementById('messages').innerHTML =
-      '<div class="empty-chat" id="empty-chat"><h2>Project Memory</h2><p>New session started.</p></div>';
+      '<div class="empty-chat" id="empty-chat"><h2>Memla</h2><p>New session started.</p></div>';
     clearSelection();
     fetchState();
   };

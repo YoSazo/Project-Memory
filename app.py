@@ -1,5 +1,5 @@
 """
-Web UI for Project Memory.
+Web UI for Memla.
 
 Usage:
     python app.py [--port 8765] [--model qwen3.5:4b]
@@ -145,7 +145,7 @@ class LinkReq(BaseModel):
 
 # ── FastAPI ──────────────────────────────────────────────────────
 
-app = FastAPI(title="Project Memory")
+app = FastAPI(title="Memla")
 STATIC = Path(__file__).parent / "static"
 
 
@@ -390,7 +390,7 @@ def recall():
 # ── Entry point ──────────────────────────────────────────────────
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Project Memory Web UI")
+    p = argparse.ArgumentParser(description="Memla Web UI")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--model", default="qwen3.5:4b")
     p.add_argument("--db", default=os.environ.get("MEMORY_DB", "./memory.sqlite"))
@@ -403,7 +403,7 @@ def main() -> None:
     S.init(model=a.model, db=a.db, user_id=a.user_id, ollama_url=a.ollama_url)
 
     url = f"http://127.0.0.1:{a.port}"
-    print(f"\n  Project Memory  ->  {url}\n")
+    print(f"\n  Memla  ->  {url}\n")
     threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     uvicorn.run(app, host="127.0.0.1", port=a.port, log_level="warning")
 
