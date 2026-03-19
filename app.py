@@ -31,6 +31,11 @@ from memory_system.memory.chunk_manager import ChunkManager
 from memory_system.memory.llm_extractor import LLMChunkExtractor
 from memory_system.middleware.ttt_layer import TTTLayer
 from memory_system.ollama_client import ChatMessage, UniversalLLMClient
+from memory_system.reasoning.trajectory import (
+    TrajectoryLog, Trajectory, TrajectoryStep,
+    inject_reasoning_prompt, parse_trajectory, has_trajectory_format,
+    extract_output_text,
+)
 
 BASE_SYSTEM = (
     "You are a helpful assistant running locally.\n\n"
@@ -76,6 +81,8 @@ class State:
         self.log: Optional[EpisodeLog] = None
         self.client: Optional[UniversalLLMClient] = None
         self.ttt: Optional[TTTLayer] = None
+        self.traj_log: Optional[TrajectoryLog] = None
+        self.last_trajectory_id: Optional[int] = None
 
     def init(self, *, model: str, db: str, user_id: str, ollama_url: str) -> None:
         self.model = model
@@ -96,6 +103,7 @@ class State:
 
         self.log._conn.execute(_USER_LINKS_DDL)
         self.log._conn.commit()
+        self.traj_log = TrajectoryLog(self.log._conn)
 
     def set_model(self, model: str) -> None:
         self.model = model
@@ -208,8 +216,7 @@ def chat(req: ChatReq):
         for c in artifacts.retrieved
     ]
 
-    # Inject user-pinned context with highest priority
-    system_prompt = artifacts.built.system_prompt
+    system_prompt = inject_reasoning_prompt(artifacts.built.system_prompt)
     if req.pinned_ids:
         all_chunks = S.log.fetch_recent_chunks(user_id=S.user_id, limit=9999)
         pinned = [c for c in all_chunks if c.id in set(req.pinned_ids)]
@@ -268,7 +275,30 @@ def chat(req: ChatReq):
                 assistant_text=full,
                 meta={"retrieved_chunk_ids": [c.id for c in artifacts.retrieved]},
             )
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+        traj_data = None
+        if has_trajectory_format(full) and S.traj_log:
+            steps = parse_trajectory(full)
+            if steps:
+                traj = Trajectory(
+                    session_id=S.session_id,
+                    user_id=S.user_id,
+                    user_query=msg,
+                    steps=steps,
+                    ts=int(time.time()),
+                )
+                traj_id = S.traj_log.save(traj)
+                S.last_trajectory_id = traj_id
+                traj_data = {"id": traj_id, "steps": [
+                    {"type": s.step_type, "content": s.content,
+                     "tool": s.tool_name, "index": s.index}
+                    for s in steps
+                ]}
+
+        done_payload = {"type": "done"}
+        if traj_data:
+            done_payload["trajectory"] = traj_data
+        yield f"data: {json.dumps(done_payload)}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -339,6 +369,30 @@ def new_session():
     return {"session_id": S.session_id}
 
 
+@app.get("/api/expand/{node_id}")
+def expand_node(node_id: int):
+    if not S.log:
+        return {"children": []}
+    children = S.log.fetch_children(node_id)
+    return {
+        "node_id": node_id,
+        "children": [
+            {"id": c.id, "type": c.chunk_type, "key": c.key,
+             "text": c.text, "freq": c.frequency_count}
+            for c in children
+        ],
+    }
+
+
+@app.post("/api/consolidate")
+def consolidate_memories():
+    if not S.log:
+        return JSONResponse({"error": "Not initialized"}, 500)
+    from memory_system.memory.consolidator import consolidate
+    summary_ids = consolidate(S.log, user_id=S.user_id)
+    return {"summary_nodes_created": len(summary_ids), "summary_ids": summary_ids}
+
+
 @app.post("/api/clear_memory")
 def clear_memory():
     if not S.log:
@@ -385,6 +439,49 @@ def get_memories():
         for (a, b), w in ew.items() if w >= 2
     ]
     return {"nodes": nodes, "edges": edges, "user_links": S.fetch_user_links()}
+
+
+class TrajectoryCorrection(BaseModel):
+    trajectory_id: int
+    steps: list[dict]
+
+
+@app.get("/api/trajectory/{traj_id}")
+def get_trajectory(traj_id: int):
+    if not S.traj_log:
+        return {"error": "Not initialized"}
+    trajs = S.traj_log.fetch_recent(user_id=S.user_id, limit=100)
+    traj = next((t for t in trajs if t.id == traj_id), None)
+    if not traj:
+        return JSONResponse({"error": "Trajectory not found"}, 404)
+    return traj.to_dict()
+
+
+@app.post("/api/trajectory/correct")
+def correct_trajectory(req: TrajectoryCorrection):
+    """User rewired the reasoning graph — save correction as CPO training pair."""
+    if not S.traj_log:
+        return JSONResponse({"error": "Not initialized"}, 500)
+    corrected_steps = [
+        TrajectoryStep(
+            step_type=s.get("type", s.get("step_type", "thought")),
+            content=s.get("content", ""),
+            tool_name=s.get("tool", s.get("tool_name", "")),
+            index=s.get("index", i),
+        )
+        for i, s in enumerate(req.steps)
+    ]
+    S.traj_log.save_correction(req.trajectory_id, corrected_steps)
+    return {"ok": True, "trajectory_id": req.trajectory_id}
+
+
+@app.get("/api/trajectory/pending_pairs")
+def pending_cpo_pairs():
+    """Get corrected trajectory pairs for CPO training (sleep phase)."""
+    if not S.traj_log:
+        return {"pairs": []}
+    pairs = S.traj_log.fetch_uncorrected_pairs(user_id=S.user_id, limit=50)
+    return {"pairs": [t.to_dict() for t in pairs]}
 
 
 @app.get("/api/recall")

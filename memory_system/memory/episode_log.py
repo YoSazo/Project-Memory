@@ -69,6 +69,7 @@ class Chunk:
     recall_count: int
     last_recalled_ts: int
     meta: dict[str, Any]
+    parent_id: Optional[int] = None
 
 
 class EpisodeLog:
@@ -79,6 +80,7 @@ class EpisodeLog:
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(SCHEMA_SQL)
         self._migrate_recall_count()
+        self._migrate_parent_id()
         self._conn.commit()
 
     def _migrate_recall_count(self) -> None:
@@ -86,6 +88,12 @@ class EpisodeLog:
             self._conn.execute("SELECT recall_count FROM chunks LIMIT 1")
         except sqlite3.OperationalError:
             self._conn.execute("ALTER TABLE chunks ADD COLUMN recall_count INTEGER NOT NULL DEFAULT 0")
+
+    def _migrate_parent_id(self) -> None:
+        try:
+            self._conn.execute("SELECT parent_id FROM chunks LIMIT 1")
+        except sqlite3.OperationalError:
+            self._conn.execute("ALTER TABLE chunks ADD COLUMN parent_id INTEGER")
 
     def close(self) -> None:
         self._conn.close()
@@ -215,10 +223,46 @@ class EpisodeLog:
             meta=json.loads(row["meta_json"] or "{}"),
         )
 
+    def fetch_children(self, parent_id: int) -> list[Chunk]:
+        rows = self._conn.execute(
+            "SELECT * FROM chunks WHERE parent_id = ? ORDER BY ts DESC",
+            (int(parent_id),),
+        ).fetchall()
+        return [self._row_to_chunk(r) for r in rows]
+
+    def set_parent(self, chunk_ids: Iterable[int], parent_id: int) -> None:
+        ids = [int(x) for x in chunk_ids]
+        if not ids:
+            return
+        q = ",".join("?" for _ in ids)
+        self._conn.execute(
+            f"UPDATE chunks SET parent_id = ? WHERE id IN ({q})",
+            (int(parent_id), *ids),
+        )
+        self._conn.commit()
+
+    def fetch_top_level_chunks(self, *, user_id: str, limit: int = 400) -> list[Chunk]:
+        rows = self._conn.execute(
+            """
+            SELECT * FROM chunks
+            WHERE user_id = ? AND parent_id IS NULL
+            ORDER BY last_recalled_ts DESC, ts DESC
+            LIMIT ?
+            """,
+            (user_id, int(limit)),
+        ).fetchall()
+        return [self._row_to_chunk(r) for r in rows]
+
     def _row_to_chunk(self, row: sqlite3.Row) -> Chunk:
         recall_count = 0
         try:
             recall_count = int(row["recall_count"])
+        except (IndexError, KeyError):
+            pass
+        parent_id = None
+        try:
+            if row["parent_id"] is not None:
+                parent_id = int(row["parent_id"])
         except (IndexError, KeyError):
             pass
         return Chunk(
@@ -234,5 +278,6 @@ class EpisodeLog:
             recall_count=recall_count,
             last_recalled_ts=int(row["last_recalled_ts"]),
             meta=json.loads(row["meta_json"] or "{}"),
+            parent_id=parent_id,
         )
 

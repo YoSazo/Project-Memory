@@ -100,6 +100,7 @@ main{display:flex;flex:1;overflow:hidden}
 .dot.fact{background:var(--fact)}.dot.decision{background:var(--decision)}
 .dot.entity{background:var(--entity)}.dot.note{background:var(--note)}
 .dot.user-link{background:var(--accent)}
+.dot.summary{background:#f472b6}
 
 /* ── Chat panel ─────────────────────────────────── */
 #chat-panel{flex:1;display:flex;flex-direction:column;min-width:0}
@@ -240,6 +241,40 @@ main{display:flex;flex:1;overflow:hidden}
 }
 
 /* ── Toast ──────────────────────────────────────── */
+.traj-panel{
+  position:fixed;bottom:0;right:0;width:420px;max-height:50vh;
+  background:var(--surface);border-top:2px solid var(--accent);border-left:1px solid var(--border);
+  display:none;flex-direction:column;z-index:200;overflow:hidden;
+  border-radius:12px 0 0 0;
+}
+.traj-panel.open{display:flex}
+.traj-hdr{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:8px 12px;border-bottom:1px solid var(--border);font-size:12px;font-weight:600;
+  color:var(--text-2);
+}
+.traj-hdr div{display:flex;gap:6px}
+.traj-nodes{overflow-y:auto;padding:10px 12px;flex:1}
+.traj-step{
+  display:flex;gap:8px;margin-bottom:8px;align-items:flex-start;
+}
+.traj-step-type{
+  font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
+  padding:2px 6px;border-radius:6px;white-space:nowrap;min-width:70px;text-align:center;
+  margin-top:2px;
+}
+.traj-step-type.thought{background:rgba(96,165,250,.15);color:#60a5fa}
+.traj-step-type.action{background:rgba(244,114,182,.15);color:#f472b6}
+.traj-step-type.observation{background:rgba(52,211,153,.15);color:#34d399}
+.traj-step-type.output{background:rgba(251,191,36,.15);color:#fbbf24}
+.traj-step-content{
+  flex:1;font-size:12px;line-height:1.5;color:var(--text);
+  background:var(--surface-2);border:1px solid var(--border);border-radius:6px;
+  padding:6px 8px;min-height:28px;
+}
+.traj-step-content[contenteditable]{cursor:text;outline:none}
+.traj-step-content[contenteditable]:focus{border-color:var(--accent)}
+.traj-arrow{color:var(--text-3);font-size:14px;text-align:center;margin:-4px 0 -4px 35px}
 #toast{
   position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
   background:var(--accent);color:#fff;padding:8px 18px;border-radius:20px;
@@ -265,6 +300,7 @@ main{display:flex;flex:1;overflow:hidden}
     <span class="hdr-stat" id="stat-turns">0 turns</span>
     <button class="hdr-btn" id="btn-graph" title="Toggle memory map">Map</button>
     <button class="hdr-btn" id="btn-new">New Session</button>
+    <button class="hdr-btn" id="btn-consolidate" title="Consolidate similar memories into summaries">Consolidate</button>
     <button class="hdr-btn" id="btn-clear-mem" title="Delete all memories and start fresh" style="color:#f87171">Clear Memory</button>
   </div>
 </header>
@@ -300,6 +336,7 @@ main{display:flex;flex:1;overflow:hidden}
       <span class="legend-item"><span class="dot decision"></span>Decision</span>
       <span class="legend-item"><span class="dot entity"></span>Entity</span>
       <span class="legend-item"><span class="dot note"></span>Note</span>
+      <span class="legend-item"><span class="dot summary"></span>Summary</span>
       <span class="legend-item"><span class="dot user-link"></span>Your links</span>
     </div>
   </aside>
@@ -338,6 +375,18 @@ main{display:flex;flex:1;overflow:hidden}
   </section>
 </main>
 
+<!-- Trajectory panel (reasoning graph) -->
+<div id="traj-panel" class="traj-panel">
+  <div class="traj-hdr">
+    <span>Reasoning Trajectory</span>
+    <div>
+      <button class="ctrl" id="traj-save" title="Save correction as training signal">Save Correction</button>
+      <button class="ctrl" id="traj-close">&times;</button>
+    </div>
+  </div>
+  <div id="traj-nodes" class="traj-nodes"></div>
+</div>
+
 <!-- Tooltip -->
 <div id="tooltip"></div>
 <!-- Toast -->
@@ -345,7 +394,7 @@ main{display:flex;flex:1;overflow:hidden}
 
 <!-- ── Script ──────────────────────────────────── -->
 <script>
-const COLORS = {fact:'#60a5fa',decision:'#c084fc',entity:'#34d399',note:'#fbbf24'};
+const COLORS = {fact:'#60a5fa',decision:'#c084fc',entity:'#34d399',note:'#fbbf24',summary:'#f472b6'};
 let currentModel = '';
 let sending = false;
 let graphOpen = true;
@@ -452,6 +501,8 @@ async function sendMessage() {
             setContent(aEl, full);
           } else if (ev.type === 'retrieved') {
             retrieved = ev.chunks || [];
+          } else if (ev.type === 'done' && ev.trajectory) {
+            showTrajectory(ev.trajectory);
           } else if (ev.type === 'error') {
             setContent(aEl, 'Error: ' + ev.text);
             aEl.classList.add('error');
@@ -677,6 +728,7 @@ function updateGraph(data) {
       .attr('cursor', 'pointer')
       .call(dragBehavior())
       .on('click', onNodeClick)
+      .on('dblclick', onNodeDblClick)
       .on('mouseover', tipShow)
       .on('mousemove', tipMove)
       .on('mouseout', tipHide)
@@ -708,7 +760,10 @@ function tick() {
   nodeSel.attr('cx',d=>d.x).attr('cy',d=>d.y);
 }
 
-function rad(d) { return Math.min(14, 4 + Math.sqrt(d.freq || 1) * 2.5); }
+function rad(d) {
+  if (d.type === 'summary') return Math.min(22, 10 + Math.sqrt(d.freq || 1) * 2);
+  return Math.min(14, 4 + Math.sqrt(d.freq || 1) * 2.5);
+}
 
 /* ── Node click (select / shift+click to connect) ── */
 function onNodeClick(event, d) {
@@ -723,6 +778,20 @@ function onNodeClick(event, d) {
   } else {
     selectNode(d);
   }
+}
+
+async function onNodeDblClick(event, d) {
+  event.stopPropagation();
+  if (d.type !== 'summary') return;
+  const r = await (await fetch(`/api/expand/${d.id}`)).json();
+  if (!r.children || !r.children.length) { showToast('No children'); return; }
+  const drawer = document.getElementById('recall-drawer');
+  const inner = document.getElementById('recall-inner');
+  inner.innerHTML = `<h4>Expanded: ${esc(d.key)}</h4>` + r.children.map(c =>
+    `<div class="recall-item"><span class="rt" style="color:${COLORS[c.type]||'#888'}">${c.type}</span>${esc(c.text)}</div>`
+  ).join('');
+  drawer.classList.add('open');
+  showToast(`Expanded ${r.children.length} memories`);
 }
 
 /* ── Drag: normal move vs shift+drag to connect ──── */
@@ -796,9 +865,10 @@ function onGraphSearch(query) {
 const tip = document.getElementById('tooltip');
 function tipShow(e, d) {
   const sel = selectedNodes.has(d.id) ? ' <span style="color:var(--accent)">[PINNED]</span>' : '';
+  const expandHint = d.type === 'summary' ? '<div style="color:#f472b6;font-size:10px;margin-top:3px">Double-click to expand</div>' : '';
   tip.innerHTML = `<span class="tip-type" style="color:${COLORS[d.type]||'#888'}">${d.type}${sel}</span>
     <div class="tip-text">${esc(d.text)}</div>
-    <span class="tip-key">${esc(d.key)}</span>`;
+    <span class="tip-key">${esc(d.key)}</span>${expandHint}`;
   tip.style.opacity = '1';
   tipMove(e);
 }
@@ -840,6 +910,17 @@ function setupListeners() {
       '<div class="empty-chat" id="empty-chat"><h2>Memla</h2><p>New session started.</p></div>';
     clearSelection();
     fetchState();
+  };
+
+  document.getElementById('btn-consolidate').onclick = async () => {
+    const r = await (await fetch('/api/consolidate', {method:'POST'})).json();
+    if (r.summary_nodes_created > 0) {
+      showToast(`Consolidated: ${r.summary_nodes_created} summary nodes created`);
+      fetchMemories();
+      fetchState();
+    } else {
+      showToast('Nothing to consolidate yet');
+    }
   };
 
   document.getElementById('btn-clear-mem').onclick = async () => {
@@ -902,6 +983,75 @@ function flash(el, ok) {
   el.classList.add('active');
   setTimeout(() => el.classList.remove('active'), ok ? 800 : 300);
 }
+
+/* ── Trajectory panel ─────────────────────────────── */
+let currentTrajectoryId = null;
+let currentTrajectorySteps = [];
+
+const TRAJ_COLORS = {thought:'#60a5fa',action:'#f472b6',observation:'#34d399',output:'#fbbf24'};
+
+function showTrajectory(trajData) {
+  if (!trajData || !trajData.steps || !trajData.steps.length) return;
+  currentTrajectoryId = trajData.id;
+  currentTrajectorySteps = trajData.steps;
+  const panel = document.getElementById('traj-panel');
+  const container = document.getElementById('traj-nodes');
+  container.innerHTML = '';
+  trajData.steps.forEach((step, i) => {
+    if (i > 0) {
+      const arrow = document.createElement('div');
+      arrow.className = 'traj-arrow';
+      arrow.textContent = '\u2193';
+      container.appendChild(arrow);
+    }
+    const row = document.createElement('div');
+    row.className = 'traj-step';
+    row.dataset.index = i;
+    const badge = document.createElement('span');
+    badge.className = 'traj-step-type ' + step.type;
+    badge.textContent = step.type + (step.tool ? ': ' + step.tool : '');
+    const content = document.createElement('div');
+    content.className = 'traj-step-content';
+    content.contentEditable = step.type !== 'output' ? 'true' : 'false';
+    content.textContent = step.content;
+    content.dataset.index = i;
+    row.appendChild(badge);
+    row.appendChild(content);
+    container.appendChild(row);
+  });
+  panel.classList.add('open');
+}
+
+document.getElementById('traj-close').onclick = () => {
+  document.getElementById('traj-panel').classList.remove('open');
+};
+
+document.getElementById('traj-save').onclick = async () => {
+  if (!currentTrajectoryId) { showToast('No trajectory to correct'); return; }
+  const nodes = document.querySelectorAll('#traj-nodes .traj-step');
+  const corrected = [];
+  nodes.forEach(node => {
+    const idx = parseInt(node.dataset.index);
+    const original = currentTrajectorySteps[idx];
+    const editedContent = node.querySelector('.traj-step-content').textContent.trim();
+    corrected.push({
+      type: original.type,
+      content: editedContent,
+      tool: original.tool || '',
+      index: idx,
+    });
+  });
+  const resp = await fetch('/api/trajectory/correct', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({trajectory_id: currentTrajectoryId, steps: corrected}),
+  });
+  const d = await resp.json();
+  if (d.ok) {
+    showToast('Correction saved \u2014 will train during sleep phase');
+    document.getElementById('traj-panel').classList.remove('open');
+  }
+};
 </script>
 </body>
 </html>

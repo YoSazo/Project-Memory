@@ -181,7 +181,7 @@ class ChunkManager:
         return episode_id, chunk_ids
 
     def retrieve(self, *, user_id: str, query_text: str, k: int = 12) -> list[Chunk]:
-        candidates = self.log.fetch_recent_chunks(user_id=user_id, limit=400)
+        candidates = self.log.fetch_top_level_chunks(user_id=user_id, limit=400)
         if not candidates:
             return []
 
