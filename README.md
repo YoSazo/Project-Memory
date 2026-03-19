@@ -29,7 +29,7 @@ Works with **Ollama** (local), **Anthropic** (Claude), or **OpenAI-compatible AP
 **Prerequisites:** Python 3.11+, Ollama running locally
 
 ```bash
-git clone https://github.com/YoSazo/Project-Memory.git
+git clone https://github.com/Jackfarmer2328/Memla.git
 cd Project-Memory
 pip install -r requirements.txt
 ```
@@ -100,24 +100,7 @@ python -m memory_system.main --model gpt-4o-mini --db ./memory.sqlite
 
 ## The interface
 
-```
-┌─────────────────────────────────────────────────────────┐
-│  Memla                   [model picker]    [New Session] │
-├───────────────────┬─────────────────────────────────────┤
-│                   │  Pinned: [fact: Byron] [note: ROAS] │
-│   Memory Graph    │                                     │
-│   (D3 force)      │  You: what should I do differently  │
-│                   │       next month?                    │
-│   ● facts         │                                     │
-│   ● decisions     │  Assistant: Based on the Byron      │
-│   ● entities      │  Creative and campaign fatigue data  │
-│   ● notes         │  you highlighted...                  │
-│   ━━ your links   │                                     │
-│                   ├─────────────────────────────────────┤
-│  [search memories]│  [message input...          ] [Send] │
-│                   │  [👍 Good] [👎 Bad] [Recall] [Clear] │
-└───────────────────┴─────────────────────────────────────┘
-```
+![Memla UI](assets/memla-ui.png)
 
 **Graph interactions:**
 - **Click** a node → pin it as context (purple glow, appears as chip above input)
