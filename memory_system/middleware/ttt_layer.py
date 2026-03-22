@@ -44,15 +44,30 @@ class TTTLayer:
                              train the retrieval LoRA with real quality signal.
     """
 
-    def __init__(self, *, episode_log: EpisodeLog, chunk_manager: ChunkManager) -> None:
+    def __init__(
+        self,
+        *,
+        episode_log: EpisodeLog,
+        chunk_manager: ChunkManager,
+        async_training: bool = True,
+        extract_assistant_chunks: bool = False,
+    ) -> None:
         self.log = episode_log
         self.chunks = chunk_manager
         self._last_retrieved: list[Any] = []
         self._prev_turn: Optional[_PreviousTurn] = None
+        self.async_training = async_training
+        self.extract_assistant_chunks = extract_assistant_chunks
 
     @property
     def last_retrieved(self) -> list[Any]:
         return self._last_retrieved
+
+    def _dispatch(self, fn) -> None:
+        if self.async_training:
+            threading.Thread(target=fn, daemon=True).start()
+        else:
+            fn()
 
     def on_user_message(
         self,
@@ -84,7 +99,7 @@ class TTTLayer:
                         except Exception:
                             pass
 
-                    threading.Thread(target=_bg_correction, daemon=True).start()
+                    self._dispatch(_bg_correction)
             except Exception:
                 pass
 
@@ -147,6 +162,7 @@ class TTTLayer:
         assistant_text: str,
         ts: Optional[int] = None,
         meta: Optional[dict[str, Any]] = None,
+        extract_chunks: Optional[bool] = None,
     ) -> int:
         ts_i = int(ts if ts is not None else time.time())
 
@@ -158,6 +174,18 @@ class TTTLayer:
             meta=meta or {},
             ts=ts_i,
         )
+
+        should_extract = self.extract_assistant_chunks if extract_chunks is None else bool(extract_chunks)
+        if should_extract:
+            self.chunks.persist_chunks_from_text(
+                session_id=session_id,
+                user_id=user_id,
+                text=assistant_text,
+                source_episode_id=episode_id,
+                speaker_role="assistant",
+                ts=ts_i,
+                meta=meta,
+            )
 
         # Store assistant response for backward extraction in the next user turn.
         if self._prev_turn is not None:
@@ -181,7 +209,7 @@ class TTTLayer:
                     except Exception:
                         pass
 
-                threading.Thread(target=_bg_train, daemon=True).start()
+                self._dispatch(_bg_train)
             except Exception:
                 pass
 
@@ -218,7 +246,7 @@ class TTTLayer:
                 except Exception:
                     pass
 
-        threading.Thread(target=_bg, daemon=True).start()
+        self._dispatch(_bg)
         return True
 
     def _backward_extract(

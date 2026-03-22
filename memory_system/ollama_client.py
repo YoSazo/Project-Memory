@@ -76,6 +76,7 @@ class UniversalLLMClient:
             "model": model,
             "messages": [{"role": m.role, "content": m.content} for m in messages],
             "stream": False,
+            "think": False,
             "options": {"temperature": float(temperature)},
         }
         if num_ctx is not None:

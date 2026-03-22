@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import random
 import threading
 import time
@@ -55,6 +56,7 @@ def micro_gradient_pass(
     quality_signal: Optional[float] = None,
     lambda_ewc: float = 500.0,
     apply_shared_projection: bool = False,
+    async_ewc_update: Optional[bool] = None,
 ) -> AdapterMeta:
     """
     Runs a small number of optimization steps on the retrieval LoRA.
@@ -127,7 +129,6 @@ def micro_gradient_pass(
 
     total_steps = max(1, int(steps))
     step_count = 0
-    fisher_losses: list[torch.Tensor] = []
     for _ in range(total_steps):
         random.shuffle(examples)
         for ex in examples:
@@ -172,10 +173,6 @@ def micro_gradient_pass(
 
             opt.step()
             step_count += 1
-            # Collect a few losses for Fisher approximation later (positive signal).
-            if contrastive.requires_grad and len(fisher_losses) < 50:
-                fisher_losses.append(contrastive)
-
             # Keep it very small per exchange.
             if step_count >= total_steps:
                 break
@@ -192,10 +189,24 @@ def micro_gradient_pass(
 
     manager.save_adapter(user_id=user_id, meta=meta)
 
-    # Fisher update runs AFTER adapter save, and never blocks the caller.
-    if ewc is not None and ewc_cfg is not None and fisher_losses:
+    # Fisher update runs AFTER adapter save. Recompute losses from the examples
+    # so EWC sees a fresh graph instead of tensors already consumed by backward().
+    if ewc is not None and ewc_cfg is not None and examples:
+        if async_ewc_update is None:
+            async_ewc_update = os.environ.get("MEMLA_ASYNC_EWC", "1").strip().lower() not in {"0", "false", "no"}
+
         def _bg_update() -> None:
             try:
+                fisher_losses: list[torch.Tensor] = []
+                max_fisher = max(1, int(getattr(ewc_cfg, "fisher_num_samples", 50)))
+                for ex in examples[:max_fisher]:
+                    q_emb = embed_train([ex.query])
+                    cand_texts = [ex.positive] + ex.negatives
+                    c_emb = embed_train(cand_texts)
+                    logits = (q_emb @ c_emb.T) * scale
+                    labels = torch.zeros((1,), dtype=torch.long, device=logits.device)
+                    fisher_losses.append(torch.nn.functional.cross_entropy(logits, labels) * q_weight)
+
                 # Use the post-update weights to recompute/merge Fisher and refresh snapshot.
                 ewc.update_fisher(model=peft_model, losses=fisher_losses, cfg=ewc_cfg)
                 # Also keep an in-memory snapshot for the manager hook.
@@ -206,7 +217,10 @@ def micro_gradient_pass(
             except Exception:
                 return
 
-        threading.Thread(target=_bg_update, daemon=True).start()
+        if async_ewc_update:
+            threading.Thread(target=_bg_update, daemon=True).start()
+        else:
+            _bg_update()
 
     return meta
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Iterable, Sequence
 
@@ -13,7 +14,7 @@ _lora_manager_cache: dict[str, Any] = {}
 
 def _get_lora_manager() -> Any:
     """Return the cached RetrievalLoRAManager, or None if unavailable."""
-    cache_key = "default"
+    cache_key = os.path.abspath(os.environ.get("MEMORY_ADAPTERS_DIR", "./adapters"))
     if cache_key in _lora_manager_cache:
         return _lora_manager_cache[cache_key]
     try:
@@ -120,6 +121,9 @@ def deferred_train(
         avg_quality *= (1.0 - correction_weight * 0.5)
 
     lam_mult = ewc_lambda_multiplier_for_chunks([q.chunk for q in positives])
+    train_steps = max(1, int(os.environ.get("MEMLA_TRAIN_STEPS", "3")))
+    train_lr = float(os.environ.get("MEMLA_TRAIN_LR", "1e-5"))
+    base_lambda_ewc = float(os.environ.get("MEMLA_TRAIN_LAMBDA_EWC", "500.0"))
 
     try:
         micro_gradient_pass(
@@ -128,10 +132,10 @@ def deferred_train(
             query=user_query,
             retrieved_texts=positive_texts,
             candidate_texts=all_texts,
-            steps=3,
-            learning_rate=1e-5,
+            steps=train_steps,
+            learning_rate=train_lr,
             quality_signal=max(0.1, avg_quality),
-            lambda_ewc=500.0 * float(lam_mult),
+            lambda_ewc=base_lambda_ewc * float(lam_mult),
         )
     except Exception:
         pass

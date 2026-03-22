@@ -95,12 +95,13 @@ class RetrievalLoRAManager:
         self._model = None
         self._peft_model = None
         self.previous_params = {}
+        self._active_user_id: Optional[str] = None
 
     def adapter_exists(self, *, user_id: str) -> bool:
         return _adapter_dir(user_id, self.adapters_dir).exists()
 
     def ensure_loaded(self, *, user_id: Optional[str] = None) -> None:
-        if self._peft_model is not None:
+        if self._peft_model is not None and (user_id is None or user_id == self._active_user_id):
             return
 
         try:
@@ -111,7 +112,8 @@ class RetrievalLoRAManager:
             raise RuntimeError(f"HF/PEFT imports unavailable: {e}") from e
 
         try:
-            tokenizer = AutoTokenizer.from_pretrained(self.base_model_name)
+            if self._tokenizer is None:
+                self._tokenizer = AutoTokenizer.from_pretrained(self.base_model_name)
             base = AutoModel.from_pretrained(self.base_model_name)
         except Exception as e:
             raise RuntimeError(f"Failed to load base retrieval model: {e}") from e
@@ -138,24 +140,27 @@ class RetrievalLoRAManager:
             bias="none",
             task_type=TaskType.FEATURE_EXTRACTION,
         )
-        peft_model = get_peft_model(base, lora_cfg)
+        peft_model = None
 
         # Load adapter weights if they exist.
         if user_id is not None:
             adir = _adapter_dir(user_id, self.adapters_dir)
             if adir.exists():
                 try:
-                    peft_model = PeftModel.from_pretrained(peft_model, str(adir), is_trainable=True)
+                    peft_model = PeftModel.from_pretrained(base, str(adir), is_trainable=True)
                 except Exception:
-                    # If adapter load fails, continue with fresh LoRA.
-                    pass
+                    peft_model = None
+
+        if peft_model is None:
+            peft_model = get_peft_model(base, lora_cfg)
 
         peft_model.to(device)
         peft_model.train(False)
 
-        self._tokenizer = tokenizer
         self._model = base
         self._peft_model = peft_model
+        self._active_user_id = user_id
+        self.previous_params = {}
 
     def load_shared_base_update(self, base_model) -> None:
         """
@@ -188,10 +193,11 @@ class RetrievalLoRAManager:
             return
 
     def load_adapter(self, *, user_id: str) -> None:
-        # In this design, "load adapter" means: ensure model + load adapter if present.
+        # Switching user_ids reloads the PEFT model so a single process can isolate users.
         self.ensure_loaded(user_id=user_id)
 
     def save_adapter(self, *, user_id: str, meta: Optional[AdapterMeta] = None) -> None:
+        self.ensure_loaded(user_id=user_id)
         if self._peft_model is None:
             return
         adir = _adapter_dir(user_id, self.adapters_dir)
