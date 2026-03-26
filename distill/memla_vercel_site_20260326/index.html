@@ -22,7 +22,7 @@
     h1 { margin:0; font-family:"Fraunces",Georgia,serif; font-size:clamp(40px,7vw,78px); line-height:.95; letter-spacing:-.04em; max-width:920px; }
     .sub { color:var(--muted); font-size:18px; line-height:1.6; max-width:820px; }
     .hero-grid { display:grid; grid-template-columns:1.45fr .9fr; gap:16px; }
-    .proof-card { border-radius:24px; padding:20px; background:linear-gradient(180deg, rgba(15,118,110,.08), rgba(255,255,255,.78)); border:1px solid rgba(15,118,110,.16); }
+    .proof-card { border-radius:24px; padding:20px; background:linear-gradient(180deg, rgba(15,118,110,.08), rgba(255,255,255,.78)); border:1px solid rgba(15,118,110,.16); display:grid; gap:12px; align-content:start; }
     .proof-kicker { color:var(--accent); font-size:12px; text-transform:uppercase; letter-spacing:.16em; font-weight:700; }
     .jump { display:flex; gap:14px; align-items:baseline; flex-wrap:wrap; margin-top:12px; }
     .raw,.memla { font-size:clamp(42px,8vw,84px); line-height:.9; font-weight:700; }
@@ -38,6 +38,8 @@
     .button { display:inline-flex; align-items:center; justify-content:center; min-height:46px; padding:0 18px; border-radius:999px; font-weight:700; text-decoration:none; }
     .button.primary { color:white; background:linear-gradient(135deg,var(--accent),#0b5650); }
     .button.secondary { color:var(--ink); background:rgba(255,255,255,.72); border:1px solid var(--line); }
+    .proof-footnote { margin-top:2px; padding:12px 14px; border-radius:16px; border:1px dashed rgba(15,118,110,.22); background:rgba(255,255,255,.56); color:var(--muted); font-size:14px; line-height:1.5; }
+    .proof-footnote strong { color:var(--ink); }
     .metrics { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:14px; }
     .metric { border-radius:20px; padding:18px; border:1px solid var(--line); background:linear-gradient(180deg, rgba(255,255,255,.82), rgba(249,244,238,.9)); }
     .metric .label { color:var(--muted); text-transform:uppercase; letter-spacing:.08em; font-size:12px; }
@@ -82,7 +84,7 @@
   <div class="wrap">
     <section class="hero">
       <div class="eyebrow">Memla / Acquisition Preview</div>
-      <h1>Memla turns accepted coding work into owned transfer.</h1>
+      <h1>Memla turns accepted coding work into transferable intelligence.</h1>
       <div class="sub">Instead of only retrieving similar text, Memla stores roles, constraints, transmutations, and verification rituals from accepted work, then uses that structure to improve the same model on future coding tasks and on new repos.</div>
       <div class="hero-grid">
         <div class="proof-card">
@@ -93,6 +95,7 @@
             <a class="button primary" href="mailto:salahsalad100@gmail.com?subject=Memla%20diligence%20request">Request diligence packet</a>
             <a class="button secondary" href="#proof">See proof layers</a>
           </div>
+          <div class="proof-footnote" id="top-trade"></div>
         </div>
         <div class="mini-stack">
           <div class="mini"><div class="label">Public curriculum</div><div class="value" id="curriculum-summary">6 / 7</div><div class="body">Public repos reached holdout across web app, backend API, auth/security, and CLI/tooling families.</div></div>
@@ -205,6 +208,12 @@
     document.getElementById("hero-raw").textContent = format(PACK.frontier.avg_raw_file_recall);
     document.getElementById("hero-memla").textContent = format(PACK.frontier.avg_memla_combined_file_recall);
     document.getElementById("curriculum-summary").textContent = `${curriculum.repos_with_holdouts || 0} / ${curriculum.repos_attempted || 0}`;
+    const topTrade = (curriculum.top_transmutations || [])[0];
+    document.getElementById("top-trade").innerHTML = topTrade
+      ? `<strong>Top trade:</strong> ${topTrade.text || topTrade} <span style="white-space:nowrap;">(${
+          topTrade.count || 0
+        } occurrences across ${curriculum.repos_with_holdouts || 0} repos)</span>`
+      : `<strong>Top trade:</strong> Memla now reuses recurring constraint trades across public repo families.`;
     document.getElementById("metrics").innerHTML = [
       metric("Home repo holdout", `${format(PACK.showcase.final_report.avg_file_recall, 1)} / ${format(PACK.showcase.final_report.avg_command_recall, 1)}`, "Seeded internal coding holdout"),
       metric("Second-repo file recall", `${format(PACK.frontier.avg_raw_file_recall)} -> ${format(PACK.frontier.avg_memla_combined_file_recall)}`, "Same model, Memla in front"),
